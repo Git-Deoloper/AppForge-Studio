@@ -8,7 +8,7 @@ import {
   createSampleDocument,
   createScreen,
 } from './sampleDocument'
-import type { AssetItem, DesignDocument, DesignNode, ExportTarget, GeneratedFile, Screen } from './types'
+import type { AssetItem, DesignDocument, DesignNode, ExportTarget, GeneratedFile, Screen, TransitionType } from './types'
 
 const STORAGE_KEY = 'appforge-studio-document'
 const exportTargets: ExportTarget[] = ['swiftui', 'swift', 'metal', 'jetpack-compose']
@@ -34,46 +34,75 @@ const validateDocument = (value: unknown): value is DesignDocument => {
   return Array.isArray(candidate.screens) && Array.isArray(candidate.assets) && Array.isArray(candidate.tokens)
 }
 
+const createInitialWorkspace = () => {
+  const fallback = createSampleDocument()
+
+  if (typeof window === 'undefined') {
+    return {
+      documentModel: fallback,
+      selectedScreenId: fallback.screens[0]?.id ?? '',
+      previewScreenId: fallback.screens[0]?.id ?? '',
+      exportTarget: fallback.exportSettings.primaryTarget,
+      statusMessage: 'Ready',
+    }
+  }
+
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+
+  if (!stored) {
+    return {
+      documentModel: fallback,
+      selectedScreenId: fallback.screens[0]?.id ?? '',
+      previewScreenId: fallback.screens[0]?.id ?? '',
+      exportTarget: fallback.exportSettings.primaryTarget,
+      statusMessage: 'Ready',
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as unknown
+
+    if (validateDocument(parsed)) {
+      return {
+        documentModel: parsed,
+        selectedScreenId: parsed.screens[0]?.id ?? '',
+        previewScreenId: parsed.screens[0]?.id ?? '',
+        exportTarget: parsed.exportSettings.primaryTarget,
+        statusMessage: 'Loaded autosaved workspace',
+      }
+    }
+  } catch {
+    return {
+      documentModel: fallback,
+      selectedScreenId: fallback.screens[0]?.id ?? '',
+      previewScreenId: fallback.screens[0]?.id ?? '',
+      exportTarget: fallback.exportSettings.primaryTarget,
+      statusMessage: 'Saved workspace was invalid and ignored',
+    }
+  }
+
+  return {
+    documentModel: fallback,
+    selectedScreenId: fallback.screens[0]?.id ?? '',
+    previewScreenId: fallback.screens[0]?.id ?? '',
+    exportTarget: fallback.exportSettings.primaryTarget,
+    statusMessage: 'Ready',
+  }
+}
+
 function App() {
-  const [documentModel, setDocumentModel] = useState<DesignDocument>(() => createSampleDocument())
-  const [selectedScreenId, setSelectedScreenId] = useState<string>(() => createSampleDocument().screens[0].id)
+  const initialWorkspace = useMemo(() => createInitialWorkspace(), [])
+  const [documentModel, setDocumentModel] = useState<DesignDocument>(initialWorkspace.documentModel)
+  const [selectedScreenId, setSelectedScreenId] = useState<string>(initialWorkspace.selectedScreenId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [previewScreenId, setPreviewScreenId] = useState<string>('')
-  const [exportTarget, setExportTarget] = useState<ExportTarget>('swiftui')
+  const [previewScreenId, setPreviewScreenId] = useState<string>(initialWorkspace.previewScreenId)
+  const [exportTarget, setExportTarget] = useState<ExportTarget>(initialWorkspace.exportTarget)
   const [selectedFilePath, setSelectedFilePath] = useState<string>('')
   const [assetUrl, setAssetUrl] = useState('')
-  const [statusMessage, setStatusMessage] = useState('Ready')
+  const [statusMessage, setStatusMessage] = useState(initialWorkspace.statusMessage)
   const [assetUploadVersion, setAssetUploadVersion] = useState(0)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ nodeId: string; offsetX: number; offsetY: number } | null>(null)
-
-  useEffect(() => {
-    const initial = createSampleDocument()
-    setDocumentModel(initial)
-    setSelectedScreenId(initial.screens[0]?.id ?? '')
-    setPreviewScreenId(initial.screens[0]?.id ?? '')
-    setExportTarget(initial.exportSettings.primaryTarget)
-  }, [])
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (!stored) {
-      return
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as unknown
-      if (validateDocument(parsed)) {
-        setDocumentModel(parsed)
-        setSelectedScreenId(parsed.screens[0]?.id ?? '')
-        setPreviewScreenId(parsed.screens[0]?.id ?? '')
-        setExportTarget(parsed.exportSettings.primaryTarget)
-        setStatusMessage('Loaded autosaved workspace')
-      }
-    } catch {
-      setStatusMessage('Saved workspace was invalid and ignored')
-    }
-  }, [])
 
   const screens = documentModel.screens
   const selectedScreen = useMemo(
@@ -89,32 +118,15 @@ function App() {
     [selectedNodeId, selectedScreen],
   )
 
-  useEffect(() => {
-    if (!selectedScreen && screens[0]) {
-      setSelectedScreenId(screens[0].id)
-    }
-
-    if (!previewScreen && screens[0]) {
-      setPreviewScreenId(screens[0].id)
-    }
-  }, [previewScreen, screens, selectedScreen])
-
   const generatedFiles = useMemo(() => generateFiles(documentModel), [documentModel])
   const visibleFiles = useMemo(
     () => filterFilesByTarget(generatedFiles, exportTarget),
     [exportTarget, generatedFiles],
   )
-  const selectedGeneratedFile =
-    visibleFiles.find((file) => file.path === selectedFilePath) ?? visibleFiles[0] ?? null
-
-  useEffect(() => {
-    if (!selectedGeneratedFile) {
-      setSelectedFilePath('')
-      return
-    }
-
-    setSelectedFilePath(selectedGeneratedFile.path)
-  }, [selectedGeneratedFile])
+  const activeFilePath = visibleFiles.some((file) => file.path === selectedFilePath)
+    ? selectedFilePath
+    : (visibleFiles[0]?.path ?? '')
+  const selectedGeneratedFile = visibleFiles.find((file) => file.path === activeFilePath) ?? null
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -724,7 +736,7 @@ function App() {
                             action: node.action
                               ? {
                                   ...node.action,
-                                  transition: event.target.value as DesignNode['action']['transition'],
+                                  transition: event.target.value as TransitionType,
                                 }
                               : node.action,
                           }))
