@@ -17,6 +17,11 @@ const composeScreenName = (screen: Screen) => `${slugify(screen.name)}Screen`
 const findRoute = (document: DesignDocument, targetScreenId: string) =>
   document.screens.find((screen) => screen.id === targetScreenId)
 
+const routeName = (document: DesignDocument, targetScreenId: string) =>
+  slugify(findRoute(document, targetScreenId)?.name ?? 'Home').replace(/^./, (character) =>
+    character.toLowerCase(),
+  )
+
 const renderSwiftNode = (document: DesignDocument, node: DesignNode) => {
   const position = `.frame(width: ${node.width}, height: ${node.height})\n${indent(3)}.position(x: ${Math.round(
     node.x + node.width / 2,
@@ -38,16 +43,22 @@ const renderSwiftNode = (document: DesignDocument, node: DesignNode) => {
     return `${indent(2)}RoundedRectangle(cornerRadius: ${node.radius})\n${indent(3)}.fill(Color(hex: "${node.fill}"))\n${indent(3)}${position}`
   }
 
-  const action =
+  return `${indent(2)}Button {
+${indent(3)}${
     node.action?.type === 'navigate'
-      ? `.onTapGesture { router.go(to: .${slugify(findRoute(document, node.action.targetScreenId)?.name ?? 'Home').replace(/^./, (c) => c.toLowerCase())}) }`
-      : ''
-
-  return `${indent(2)}Button {\n${indent(3)}${
-    node.action?.type === 'navigate'
-      ? `router.go(to: .${slugify(findRoute(document, node.action.targetScreenId)?.name ?? 'Home').replace(/^./, (c) => c.toLowerCase())})`
+      ? `router.go(to: .${routeName(document, node.action.targetScreenId)})`
       : '// Action placeholder'
-  }\n${indent(2)}} label: {\n${indent(3)}Text("${escapeText(node.text)}")\n${indent(4)}.font(.system(size: ${node.fontSize}, weight: .semibold))\n${indent(4)}.foregroundStyle(Color(hex: "${node.foreground}"))\n${indent(4)}.frame(maxWidth: .infinity, maxHeight: .infinity)\n${indent(2)}}\n${indent(3)}.buttonStyle(.plain)\n${indent(3)}.background(Color(hex: "${node.fill}"))\n${indent(3)}.clipShape(RoundedRectangle(cornerRadius: ${node.radius}))\n${indent(3)}${position}${action}`
+  }
+${indent(2)}} label: {
+${indent(3)}Text("${escapeText(node.text)}")
+${indent(4)}.font(.system(size: ${node.fontSize}, weight: .semibold))
+${indent(4)}.foregroundStyle(Color(hex: "${node.foreground}"))
+${indent(4)}.frame(maxWidth: .infinity, maxHeight: .infinity)
+${indent(2)}}
+${indent(3)}.buttonStyle(.plain)
+${indent(3)}.background(Color(hex: "${node.fill}"))
+${indent(3)}.clipShape(RoundedRectangle(cornerRadius: ${node.radius}))
+${indent(3)}${position}`
 }
 
 const renderComposeNode = (document: DesignDocument, node: DesignNode) => {

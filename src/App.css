@@ -241,12 +241,26 @@ small,
   border-color: #38bdf8;
 }
 
-.canvas-node img,
-.preview-image img,
-.asset-card img {
+.asset-visual {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  display: grid;
+  place-content: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  text-align: center;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.34), rgba(14, 165, 233, 0.2));
+  color: #e2e8f0;
+}
+
+.asset-visual small {
+  color: #cbd5e1;
+}
+
+.asset-visual-card {
+  aspect-ratio: 1.2;
+  border-radius: 16px;
 }
 
 .preview-node {
@@ -335,10 +349,6 @@ small,
   gap: 0.45rem;
 }
 
-.asset-card img {
-  border-radius: 16px;
-  aspect-ratio: 1.2;
-}
 
 .token-row {
   grid-template-columns: 1fr 1fr;
