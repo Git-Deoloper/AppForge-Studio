@@ -13,6 +13,26 @@ import type { AssetItem, DesignDocument, DesignNode, ExportTarget, GeneratedFile
 const STORAGE_KEY = 'appforge-studio-document'
 const exportTargets: ExportTarget[] = ['swiftui', 'swift', 'metal', 'jetpack-compose']
 
+const FALLBACK_IMAGE = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320" fill="none"><rect width="480" height="320" rx="32" fill="#0F172A"/><path d="M96 224L176 152L240 216L312 120L384 224" stroke="#38BDF8" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/><circle cx="176" cy="112" r="28" fill="#7C3AED"/></svg>',
+)}`
+
+const isSafeImageSource = (value: string) => {
+  if (value.startsWith('data:image/') || value.startsWith('blob:')) {
+    return true
+  }
+
+  try {
+    const parsed = new URL(value, window.location.origin)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const getRenderableAssetSrc = (asset?: AssetItem) =>
+  asset && isSafeImageSource(asset.src) ? asset.src : FALLBACK_IMAGE
+
 const downloadTextFile = (filename: string, content: string) => {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -316,6 +336,11 @@ function App() {
       return
     }
 
+    if (!isSafeImageSource(assetUrl.trim())) {
+      setStatusMessage('Only https, http, blob, or data:image assets are allowed')
+      return
+    }
+
     const nextAsset: AssetItem = {
       id: crypto.randomUUID(),
       name: `Remote Asset ${documentModel.assets.length + 1}`,
@@ -567,7 +592,7 @@ function App() {
                   >
                     {node.type === 'image' ? (
                       asset ? (
-                        <img src={asset.src} alt={asset.name} />
+                        <img src={getRenderableAssetSrc(asset)} alt={asset.name} />
                       ) : (
                         <span className="placeholder-label">Choose asset</span>
                       )
@@ -792,7 +817,7 @@ function App() {
                   className={selectedNode?.assetId === asset.id ? 'asset-card active' : 'asset-card'}
                   onClick={() => bindAssetToSelectedNode(asset.id)}
                 >
-                  <img src={asset.src} alt={asset.name} />
+                  <img src={getRenderableAssetSrc(asset)} alt={asset.name} />
                   <strong>{asset.name}</strong>
                 </button>
               ))}
@@ -861,7 +886,7 @@ function App() {
               if (node.type === 'image') {
                 return (
                   <div key={node.id} className="preview-node preview-image" style={style}>
-                    {asset ? <img src={asset.src} alt={asset.name} /> : <span>No asset</span>}
+                    {asset ? <img src={getRenderableAssetSrc(asset)} alt={asset.name} /> : <span>No asset</span>}
                   </div>
                 )
               }

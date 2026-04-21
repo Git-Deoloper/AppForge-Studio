@@ -359,9 +359,9 @@ export const createSampleDocument = (): DesignDocument => {
     ],
     exportSettings: {
       appName: 'AppForgeStudio',
-      bundleId: 'com.gitdeoloper.appforge',
+      bundleId: 'com.gitdeveloper.appforge',
       swiftModuleName: 'AppForgeStudio',
-      androidPackageName: 'com.gitdeoloper.appforge',
+      androidPackageName: 'com.gitdeveloper.appforge',
       primaryTarget: 'swiftui',
     },
   }
