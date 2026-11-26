@@ -1,34 +1,44 @@
 # AppForge Studio
 
-AppForge Studio is a browser-based starter for a Figma-like app design tool. It lets you compose screens on a canvas, attach assets, wire navigation flows with arrows, preview the interaction model, and generate starter files for SwiftUI, Swift, Metal, and Jetpack Compose.
+A browser-based app prototyping workspace. Compose screens on a canvas, attach image assets, connect navigation flows, preview interactions, and export starter source for SwiftUI, Swift, Metal, and Jetpack Compose.
 
-## Features
+## Run locally
 
-- multi-screen visual editor with draggable layers
-- component-pattern insertion for hero, CTA, and card blocks
-- asset library with URL and file uploads
-- inspector for styling, copy, geometry, and navigation targets
-- prototype flow map with arrow links between screens
-- live preview frame that follows button navigation
-- canonical JSON document model with save, import, and export
-- generated file previews plus one-click downloads for SwiftUI, Swift, Metal, and Jetpack Compose outputs
-
-## Getting started
+Requires **Node.js 22.18 or later**.
 
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run dev
 ```
 
-Open the local Vite URL in your browser.
+Open the local Vite URL. The starter document uses fictional example content.
 
-## Build and lint
+## Features
+
+- Multi-screen visual editor with draggable text, buttons, shapes, and image layers.
+- Hero, call-to-action, and card patterns; inspector controls for text, geometry, colors, and navigation targets.
+- Image previews from supported uploads (up to 5 MiB) and explicit HTTP(S) image URLs.
+- A prototype map and interactive screen preview.
+- Manual browser save, JSON import/export, and validation before an imported document replaces the workspace.
+- Generated-file previews and a single ZIP download that preserves the export's directories.
+- Distinct native identifiers for screens with duplicate, numeric, or non-Latin titles; escaped source text and tokens.
+
+## Save and import
+
+**Save workspace** stores the current document in this browser profile. This is a manual save, not continuous autosave. Browser storage can be unavailable or full; the status bar reports failure. Download JSON to keep a portable backup. JSON imports are limited to 10 MiB and must contain the complete documented model in `src/types.ts`; malformed fields and unresolved navigation or asset references are rejected.
+
+Image URLs are loaded by the browser from the URL you choose. Uploaded images remain in the document as data URLs. Blob URLs are not accepted because they cannot survive a later import or browser restart.
+
+## Verify
 
 ```bash
-npm run build
-npm run lint
+npm run verify
 ```
 
-## Export notes
+This runs regression tests for import validation, native-source escaping, identifier collisions, fractional Compose geometry, and ZIP packaging, followed by lint and the TypeScript/Vite production build. GitHub Actions runs the same checks.
 
-The generated files are starter outputs based on the current design document. The SwiftUI export includes app entry, navigation, screen views, design tokens, and an asset manifest that can be dropped into an Xcode project and extended from there. Jetpack Compose, Swift, and Metal outputs are also generated from the same model.
+## Export scope
+
+The output is **starter source**, not a complete Xcode or Android Studio project. SwiftUI exports contain app entry, screen views, routing, token helpers, and an asset manifest. Add image resources to your Xcode asset catalogue using the generated names. Compose image layers are placeholders to replace with your Android image loading strategy. Navigation currently switches the active screen; the transition choices are recorded in the design and transition metadata, but full native push stacks and modal presentation need integration work. Metal files are starter shaders.
+
+The app exports its 390 × 844 design coordinates; adapt the generated layout for your target devices. Native compilation in Xcode/Android Studio remains a required integration check. The JavaScript regression suite and web build do not substitute for it.
