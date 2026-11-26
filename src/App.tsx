@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { filterFilesByTarget, generateFiles } from './exporters'
+import { createZip } from './zip'
+import { isSafeImageSource, validateDocument, MAX_DOCUMENT_BYTES, MAX_ASSET_BYTES } from './validation'
 import {
   SCREEN_SIZE,
   createComponentPreset,
@@ -13,19 +15,6 @@ import type { AssetItem, DesignDocument, DesignNode, ExportTarget, GeneratedFile
 const STORAGE_KEY = 'appforge-studio-document'
 const exportTargets: ExportTarget[] = ['swiftui', 'swift', 'metal', 'jetpack-compose']
 
-const isSafeImageSource = (value: string) => {
-  if (value.startsWith('data:image/') || value.startsWith('blob:')) {
-    return true
-  }
-
-  try {
-    const parsed = new URL(value, window.location.origin)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
 const downloadTextFile = (filename: string, content: string) => {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -33,19 +22,10 @@ const downloadTextFile = (filename: string, content: string) => {
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
-
-const validateDocument = (value: unknown): value is DesignDocument => {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  const candidate = value as Partial<DesignDocument>
-  return Array.isArray(candidate.screens) && Array.isArray(candidate.assets) && Array.isArray(candidate.tokens)
-}
 
 const createInitialWorkspace = () => {
   const fallback = createSampleDocument()
@@ -60,7 +40,12 @@ const createInitialWorkspace = () => {
     }
   }
 
-  const stored = window.localStorage.getItem(STORAGE_KEY)
+  let stored: string | null
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return { documentModel: fallback, selectedScreenId: fallback.screens[0].id, previewScreenId: fallback.screens[0].id, exportTarget: fallback.exportSettings.primaryTarget, statusMessage: 'Browser storage is unavailable; download JSON to keep your work' }
+  }
 
   if (!stored) {
     return {
@@ -81,7 +66,7 @@ const createInitialWorkspace = () => {
         selectedScreenId: parsed.screens[0]?.id ?? '',
         previewScreenId: parsed.screens[0]?.id ?? '',
         exportTarget: parsed.exportSettings.primaryTarget,
-        statusMessage: 'Loaded autosaved workspace',
+        statusMessage: 'Loaded saved workspace',
       }
     }
   } catch {
@@ -165,8 +150,8 @@ function App() {
               node.id === dragRef.current?.nodeId
                 ? {
                     ...node,
-                    x: clamp(nextX, 0, SCREEN_SIZE.width - node.width),
-                    y: clamp(nextY, 0, SCREEN_SIZE.height - node.height),
+                    x: clamp(nextX, 0, Math.max(0, SCREEN_SIZE.width - node.width)),
+                    y: clamp(nextY, 0, Math.max(0, SCREEN_SIZE.height - node.height)),
                   }
                 : node,
             ),
@@ -291,8 +276,12 @@ function App() {
   }
 
   const saveWorkspace = () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(documentModel))
-    setStatusMessage('Workspace saved to local storage')
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(documentModel))
+      setStatusMessage('Workspace saved to local storage')
+    } catch {
+      setStatusMessage('Could not save: browser storage is unavailable or full. Download JSON to keep your work.')
+    }
   }
 
   const resetWorkspace = () => {
@@ -310,6 +299,7 @@ function App() {
   }
 
   const importDocument = async (file: File) => {
+    if (file.size > MAX_DOCUMENT_BYTES) throw new Error('Document exceeds 10 MiB')
     const text = await file.text()
     const parsed = JSON.parse(text) as unknown
 
@@ -318,6 +308,7 @@ function App() {
     }
 
     setDocumentModel(parsed)
+    setExportTarget(parsed.exportSettings.primaryTarget)
     setSelectedScreenId(parsed.screens[0]?.id ?? '')
     setPreviewScreenId(parsed.screens[0]?.id ?? '')
     setSelectedNodeId(null)
@@ -330,7 +321,7 @@ function App() {
     }
 
     if (!isSafeImageSource(assetUrl.trim())) {
-      setStatusMessage('Only https, http, blob, or data:image assets are allowed')
+      setStatusMessage('Use an http(s) image URL without credentials or an image data URL')
       return
     }
 
@@ -348,6 +339,7 @@ function App() {
   }
 
   const addAssetFromFile = async (file: File) => {
+    if (!file.type.startsWith('image/') || file.size > MAX_ASSET_BYTES) throw new Error('Choose an image up to 5 MiB')
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result))
@@ -355,6 +347,7 @@ function App() {
       reader.readAsDataURL(file)
     })
 
+    if (!isSafeImageSource(dataUrl)) throw new Error('Unsupported image format')
     const nextAsset: AssetItem = {
       id: crypto.randomUUID(),
       name: file.name,
@@ -386,10 +379,13 @@ function App() {
   }
 
   const downloadGeneratedFiles = (files: GeneratedFile[]) => {
-    files.forEach((file) => {
-      downloadTextFile(file.path.split('/').pop() ?? file.path, file.content)
-    })
-    setStatusMessage(`Downloaded ${files.length} generated files`)
+    const url = URL.createObjectURL(new Blob([createZip(files)], { type: 'application/zip' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'appforge-export.zip'
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    setStatusMessage(`Exported ${files.length} files in one ZIP archive`)
   }
 
   const prototypeLinks = useMemo(
@@ -585,10 +581,7 @@ function App() {
                   >
                     {node.type === 'image' ? (
                       asset ? (
-                        <div className="asset-visual">
-                          <span>{asset.name}</span>
-                          <small>{asset.mimeType}</small>
-                        </div>
+                        <img className="asset-image" src={asset.src} alt={asset.name} draggable={false} referrerPolicy="no-referrer" />
                       ) : (
                         <span className="placeholder-label">Choose asset</span>
                       )
@@ -671,19 +664,19 @@ function App() {
                 <div className="grid-2">
                   <label>
                     X
-                    <input type="number" value={selectedNode.x} onChange={(event) => updateNode((node) => ({ ...node, x: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.x} onChange={(event) => updateNode((node) => ({ ...node, x: clamp(Number(event.target.value), 0, 10000) }))} />
                   </label>
                   <label>
                     Y
-                    <input type="number" value={selectedNode.y} onChange={(event) => updateNode((node) => ({ ...node, y: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.y} onChange={(event) => updateNode((node) => ({ ...node, y: clamp(Number(event.target.value), 0, 10000) }))} />
                   </label>
                   <label>
                     Width
-                    <input type="number" value={selectedNode.width} onChange={(event) => updateNode((node) => ({ ...node, width: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.width} onChange={(event) => updateNode((node) => ({ ...node, width: clamp(Number(event.target.value), 1, 10000) }))} />
                   </label>
                   <label>
                     Height
-                    <input type="number" value={selectedNode.height} onChange={(event) => updateNode((node) => ({ ...node, height: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.height} onChange={(event) => updateNode((node) => ({ ...node, height: clamp(Number(event.target.value), 1, 10000) }))} />
                   </label>
                 </div>
                 <div className="grid-2">
@@ -697,11 +690,11 @@ function App() {
                   </label>
                   <label>
                     Font size
-                    <input type="number" value={selectedNode.fontSize} onChange={(event) => updateNode((node) => ({ ...node, fontSize: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.fontSize} onChange={(event) => updateNode((node) => ({ ...node, fontSize: clamp(Number(event.target.value), 1, 512) }))} />
                   </label>
                   <label>
                     Radius
-                    <input type="number" value={selectedNode.radius} onChange={(event) => updateNode((node) => ({ ...node, radius: Number(event.target.value) }))} />
+                    <input type="number" value={selectedNode.radius} onChange={(event) => updateNode((node) => ({ ...node, radius: clamp(Number(event.target.value), 0, 10000) }))} />
                   </label>
                 </div>
                 {selectedNode.type === 'image' ? (
@@ -801,7 +794,7 @@ function App() {
                       return
                     }
 
-                    void addAssetFromFile(file).catch(() => setStatusMessage('Failed to upload asset'))
+                    void addAssetFromFile(file).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : 'Failed to upload asset'))
                   }}
                 />
               </label>
@@ -813,10 +806,7 @@ function App() {
                   className={selectedNode?.assetId === asset.id ? 'asset-card active' : 'asset-card'}
                   onClick={() => bindAssetToSelectedNode(asset.id)}
                 >
-                  <div className="asset-visual asset-visual-card">
-                    <span>{asset.name}</span>
-                    <small>{asset.mimeType}</small>
-                  </div>
+                  <img className="asset-image asset-visual-card" src={asset.src} alt="" draggable={false} referrerPolicy="no-referrer" />
                   <strong>{asset.name}</strong>
                 </button>
               ))}
@@ -886,10 +876,7 @@ function App() {
                 return (
                   <div key={node.id} className="preview-node preview-image" style={style}>
                     {asset ? (
-                      <div className="asset-visual">
-                        <span>{asset.name}</span>
-                        <small>{asset.mimeType}</small>
-                      </div>
+                      <img className="asset-image" src={asset.src} alt={asset.name} draggable={false} referrerPolicy="no-referrer" />
                     ) : (
                       <span>No asset</span>
                     )}
@@ -997,7 +984,7 @@ function App() {
         </section>
       </div>
 
-      <footer className="statusbar">
+      <footer className="statusbar" role="status">
         <span>{statusMessage}</span>
         <span>Updated {new Date(documentModel.updatedAt).toLocaleString()}</span>
       </footer>
